@@ -1,0 +1,21 @@
+{
+  "name": "inshare-url-shortener",
+  "version": "1.0.0",
+  "description": "URL shortener API with Supabase",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": ["url-shortener", "api", "supabase"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1",
+    "nanoid": "^3.3.7",
+    "validator": "^13.11.0",
+    "cors": "^2.8.5"
+  }
+}
