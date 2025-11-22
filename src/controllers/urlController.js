@@ -1,16 +1,152 @@
 const { nanoid } = require('nanoid');
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
+const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
+const r2Client = require('../config/r2');
 const supabase = require('../config/supabase');
 const { isValidUrl, isValidAlias } = require('../utils/urlValidator');
 const { validateMetadata, convertToDatabaseFormat, convertToApiFormat } = require('../utils/metadataValidator');
+const { verifyPassword } = require('../utils/auth');
+const { trackUrlCreation, trackFeatureUsage } = require('./billingController');
+
+/**
+ * Check quota for user or IP address
+ */
+const checkQuota = async (user) => {
+  try {
+    if (user.isAuthenticated) {
+      // For authenticated users, check subscription and plan limits
+      const { data: subscription, error: subError } = await supabase
+        .from('user_subscriptions')
+        .select(`
+          id,
+          plan_id,
+          plans (
+            id,
+            name,
+            url_limit
+          )
+        `)
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .single();
+
+      if (subError || !subscription) {
+        return { 
+          allowed: false, 
+          error: 'no_active_plan',
+          message: 'No active subscription found. Please purchase a plan to shorten URLs.'
+        };
+      }
+
+      const urlLimit = subscription.plans.url_limit;
+      const planId = subscription.plan_id;
+
+      // If unlimited (Enterprise)
+      if (urlLimit === null) {
+        return { allowed: true, planId, isUnlimited: true };
+      }
+
+      // Count user's URLs
+      const { count: urlCount, error: countError } = await supabase
+        .from('urls')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+
+      if (countError) {
+        console.error('Error counting URLs:', countError);
+        return { 
+          allowed: false, 
+          error: 'Failed to check quota' 
+        };
+      }
+
+      const remaining = urlLimit - (urlCount || 0);
+
+      if (remaining <= 0) {
+        return { 
+          allowed: false, 
+          error: 'quota_exceeded',
+          message: `You have reached your plan limit of ${urlLimit} URLs. Please upgrade your plan.`,
+          usage: { used: urlCount, limit: urlLimit, remaining: 0 }
+        };
+      }
+
+      return { 
+        allowed: true, 
+        planId,
+        isUnlimited: false,
+        usage: { used: urlCount, limit: urlLimit, remaining }
+      };
+
+    } else {
+      // For anonymous users, check IP-based free quota (2 URLs)
+      const { data: freePlan } = await supabase
+        .from('plans')
+        .select('id, url_limit')
+        .eq('name', 'free')
+        .single();
+
+      if (!freePlan) {
+        return { 
+          allowed: false, 
+          error: 'Free plan not configured' 
+        };
+      }
+
+      const freeLimit = freePlan.url_limit || 2;
+      const planId = freePlan.id;
+
+      // Count URLs created by this IP
+      const { count: urlCount, error: countError } = await supabase
+        .from('urls')
+        .select('id', { count: 'exact', head: true })
+        .eq('ip_address', user.ip)
+        .is('user_id', null);
+
+      if (countError) {
+        console.error('Error counting URLs:', countError);
+        return { 
+          allowed: false, 
+          error: 'Failed to check quota' 
+        };
+      }
+
+      const remaining = freeLimit - (urlCount || 0);
+
+      if (remaining <= 0) {
+        return { 
+          allowed: false, 
+          error: 'quota_exceeded',
+          message: `Anonymous users are limited to ${freeLimit} URLs. Please register for more URLs.`,
+          usage: { used: urlCount, limit: freeLimit, remaining: 0 }
+        };
+      }
+
+      return { 
+        allowed: true, 
+        planId,
+        isUnlimited: false,
+        usage: { used: urlCount, limit: freeLimit, remaining }
+      };
+    }
+  } catch (error) {
+    console.error('Error in checkQuota:', error);
+    return { 
+      allowed: false, 
+      error: 'Internal error checking quota' 
+    };
+  }
+};
 
 /**
  * Shorten a URL
  * POST /api/shorten
- * Body: { url: string, alias?: string, metadata?: object }
+ * Body: { url: string, alias?: string, urlType?: string, expiryTime?: string, metadata?: object }
  */
 const shortenUrl = async (req, res) => {
   try {
-    const { url, alias, metadata } = req.body;
+    const { url, alias, urlType, expiryTime, metadata } = req.body;
+    const user = req.user;
 
     // Validate URL
     if (!url) {
@@ -19,6 +155,16 @@ const shortenUrl = async (req, res) => {
 
     if (!isValidUrl(url)) {
       return res.status(400).json({ error: 'Invalid URL format. Must include http:// or https://' });
+    }
+
+    // Check quota before proceeding
+    const quotaCheck = await checkQuota(user);
+    if (!quotaCheck.allowed) {
+      return res.status(403).json({ 
+        error: quotaCheck.error,
+        message: quotaCheck.message,
+        usage: quotaCheck.usage
+      });
     }
 
     // Validate metadata if provided
@@ -69,23 +215,68 @@ const shortenUrl = async (req, res) => {
       }
     }
 
+    // Validate expiry time if provided
+    let validExpiryTime = null;
+    if (expiryTime) {
+      const expiryDate = new Date(expiryTime);
+      if (isNaN(expiryDate.getTime())) {
+        return res.status(400).json({ error: 'Invalid expiry time format. Use ISO 8601 format.' });
+      }
+      if (expiryDate <= new Date()) {
+        return res.status(400).json({ error: 'Expiry time must be in the future.' });
+      }
+      validExpiryTime = expiryDate.toISOString();
+    }
+
+    // Prepare URL data
+    const urlData = {
+      short_code: shortCode,
+      original_url: url,
+      custom_alias: isCustomAlias,
+      clicks: 0,
+      plan_id: quotaCheck.planId,
+      url_type: urlType || 'standard'
+    };
+
+    // Add user tracking
+    if (user.isAuthenticated) {
+      urlData.user_id = user.id;
+      urlData.ip_address = null;
+    } else {
+      urlData.ip_address = user.ip;
+      urlData.user_id = null;
+    }
+
+    // Add expiry time if provided
+    if (validExpiryTime) {
+      urlData.expiry_time = validExpiryTime;
+    }
+
     // Insert URL into database
-    const { data: urlData, error: urlError } = await supabase
+    const { data: createdUrl, error: urlError } = await supabase
       .from('urls')
-      .insert([
-        {
-          short_code: shortCode,
-          original_url: url,
-          custom_alias: isCustomAlias,
-          clicks: 0
-        }
-      ])
+      .insert([urlData])
       .select()
       .single();
 
     if (urlError) {
       console.error('Database error:', urlError);
       return res.status(500).json({ error: 'Failed to create short URL' });
+    }
+
+    // Track usage for enterprise users
+    if (user.isAuthenticated) {
+      // Check if user is enterprise
+      const { data: userData } = await supabase
+        .from('users')
+        .select('user_type')
+        .eq('id', user.id)
+        .single();
+
+      if (userData && userData.user_type === 'enterprise') {
+        // Track URL creation for billing
+        await trackUrlCreation(user.id);
+      }
     }
 
     // Insert metadata if provided
@@ -96,7 +287,7 @@ const shortenUrl = async (req, res) => {
         .from('url_metadata')
         .insert([
           {
-            url_id: urlData.id,
+            url_id: createdUrl.id,
             ...dbMetadata
           }
         ])
@@ -106,11 +297,30 @@ const shortenUrl = async (req, res) => {
       if (metaError) {
         console.error('Metadata insertion error:', metaError);
         // Delete the URL if metadata fails
-        await supabase.from('urls').delete().eq('id', urlData.id);
+        await supabase.from('urls').delete().eq('id', createdUrl.id);
         return res.status(500).json({ error: 'Failed to save URL metadata' });
       }
 
       metadataResponse = convertToApiFormat(metaData);
+
+      // Track feature usage for enterprise users
+      if (user.isAuthenticated) {
+        const { data: userData } = await supabase
+          .from('users')
+          .select('user_type')
+          .eq('id', user.id)
+          .single();
+
+        if (userData && userData.user_type === 'enterprise') {
+          // Track each enabled feature
+          const sanitized = metadataValidation.sanitized;
+          if (sanitized.isDownloadEnable) await trackFeatureUsage(user.id, 'download_enable');
+          if (sanitized.isScreenshotEnable) await trackFeatureUsage(user.id, 'screenshot');
+          if (sanitized.isChatbotEnable) await trackFeatureUsage(user.id, 'chatbot');
+          if (sanitized.isInterestForm) await trackFeatureUsage(user.id, 'interest_form');
+          if (sanitized.isFollowUp) await trackFeatureUsage(user.id, 'follow_up');
+        }
+      }
     }
 
     const baseUrl = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
@@ -118,11 +328,14 @@ const shortenUrl = async (req, res) => {
     const response = {
       success: true,
       data: {
-        shortCode: urlData.short_code,
-        shortUrl: `${baseUrl}/${urlData.short_code}`,
-        originalUrl: urlData.original_url,
-        createdAt: urlData.created_at
-      }
+        shortCode: createdUrl.short_code,
+        shortUrl: `${baseUrl}/${createdUrl.short_code}`,
+        originalUrl: createdUrl.original_url,
+        urlType: createdUrl.url_type,
+        expiryTime: createdUrl.expiry_time,
+        createdAt: createdUrl.created_at
+      },
+      quota: quotaCheck.usage
     };
 
     if (metadataResponse) {
@@ -138,14 +351,16 @@ const shortenUrl = async (req, res) => {
 };
 
 /**
- * Redirect to original URL
+ * Redirect to original URL or generate signed R2 URL for files
  * GET /:shortCode
+ * Query params: ?password=xxx (for password-protected files)
  */
 const redirectUrl = async (req, res) => {
   try {
     const { shortCode } = req.params;
+    const { password } = req.query;
 
-    // Get URL from database with metadata
+    // Get URL from database
     const { data: urlData, error: urlError } = await supabase
       .from('urls')
       .select('*')
@@ -156,14 +371,26 @@ const redirectUrl = async (req, res) => {
       return res.status(404).json({ error: 'Short URL not found' });
     }
 
-    // Check for metadata and expiration
+    // Check if URL has expired
+    if (urlData.expiry_time) {
+      const expirationDate = new Date(urlData.expiry_time);
+      const now = new Date();
+      
+      if (now > expirationDate) {
+        return res.status(410).json({ 
+          error: 'This short URL has expired',
+          expiredAt: urlData.expiry_time
+        });
+      }
+    }
+
+    // Check for metadata and expiration from metadata table
     const { data: metaData } = await supabase
       .from('url_metadata')
       .select('*')
       .eq('url_id', urlData.id)
       .single();
 
-    // Check if URL has expired
     if (metaData && metaData.expire_time) {
       const expirationDate = new Date(metaData.expire_time);
       const now = new Date();
@@ -176,13 +403,53 @@ const redirectUrl = async (req, res) => {
       }
     }
 
+    // Check if password protected
+    if (urlData.is_password_protected) {
+      if (!password) {
+        return res.status(401).json({ 
+          error: 'Password required',
+          message: 'This link is password protected. Please provide password in query parameter: ?password=xxx'
+        });
+      }
+
+      // Verify password
+      const isValidPassword = verifyPassword(password, urlData.password_hash);
+      if (!isValidPassword) {
+        return res.status(401).json({ 
+          error: 'Invalid password',
+          message: 'The password you provided is incorrect'
+        });
+      }
+    }
+
     // Increment click count
     await supabase
       .from('urls')
       .update({ clicks: urlData.clicks + 1 })
       .eq('short_code', shortCode);
 
-    // Redirect to original URL
+    // Handle file URLs (from R2) - generate signed URL
+    if (urlData.url_type === 'file' && urlData.r2_bucket && urlData.r2_key) {
+      try {
+        // Generate signed URL (valid for 1 hour)
+        const command = new GetObjectCommand({
+          Bucket: urlData.r2_bucket,
+          Key: urlData.r2_key,
+        });
+
+        const signedUrl = await getSignedUrl(r2Client, command, { 
+          expiresIn: 3600 // 1 hour in seconds
+        });
+
+        // Redirect to signed R2 URL
+        return res.redirect(signedUrl);
+      } catch (error) {
+        console.error('Error generating signed URL:', error);
+        return res.status(500).json({ error: 'Failed to generate file access URL' });
+      }
+    }
+
+    // For regular URLs, redirect directly
     res.redirect(urlData.original_url);
 
   } catch (error) {
@@ -223,7 +490,10 @@ const getStats = async (req, res) => {
         originalUrl: urlData.original_url,
         clicks: urlData.clicks,
         customAlias: urlData.custom_alias,
-        createdAt: urlData.created_at
+        urlType: urlData.url_type,
+        expiryTime: urlData.expiry_time,
+        createdAt: urlData.created_at,
+        createdBy: urlData.user_id ? 'registered_user' : 'anonymous'
       }
     };
 

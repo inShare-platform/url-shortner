@@ -7,15 +7,22 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js"
   },
-  "keywords": ["url-shortener", "api", "supabase"],
+  "keywords": [
+    "url-shortener",
+    "api",
+    "supabase"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.937.0",
+    "@aws-sdk/s3-request-presigner": "^3.937.0",
     "@supabase/supabase-js": "^2.39.0",
-    "express": "^4.18.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "multer": "^2.0.2",
     "nanoid": "^3.3.7",
-    "validator": "^13.11.0",
-    "cors": "^2.8.5"
+    "validator": "^13.11.0"
   }
 }

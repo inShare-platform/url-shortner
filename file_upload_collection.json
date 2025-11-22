@@ -1,0 +1,1027 @@
+{
+  "info": {
+    "name": "URL Shortener - File Upload API",
+    "description": "Complete file upload API collection with R2 storage integration. Upload PDFs and images, create short URLs with metadata, password protection, and expiry times. Files are stored in Cloudflare R2 and accessed via signed URLs valid for 1 hour.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "file-upload-api"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "auth_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "short_code",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "password",
+      "value": "test123",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Basic File Upload",
+      "item": [
+        {
+          "name": "Upload PDF (Anonymous)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"Response contains short code\", function () {",
+                  "    pm.expect(jsonData.data).to.have.property('shortCode');",
+                  "    pm.expect(jsonData.data).to.have.property('shortUrl');",
+                  "});",
+                  "",
+                  "pm.test(\"File type is PDF\", function () {",
+                  "    pm.expect(jsonData.data.fileType).to.include('pdf');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('short_code', jsonData.data.shortCode);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select a PDF file to upload"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload a PDF file without authentication. Anonymous users can upload up to 2 files."
+          }
+        },
+        {
+          "name": "Upload Image (Anonymous)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"File type is image\", function () {",
+                  "    pm.expect(jsonData.data.fileType).to.include('image');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('short_code', jsonData.data.shortCode);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select an image file (JPEG, PNG, GIF, WebP, SVG)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload an image file. Supported formats: JPEG, PNG, GIF, WebP, SVG"
+          }
+        },
+        {
+          "name": "Upload PDF (Authenticated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"Quota information included\", function () {",
+                  "    pm.expect(jsonData).to.have.property('quota');",
+                  "    pm.expect(jsonData.quota).to.have.property('used');",
+                  "    pm.expect(jsonData.quota).to.have.property('remaining');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('short_code', jsonData.data.shortCode);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select a PDF file"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload a file with authentication. File is stored in user-specific R2 bucket."
+          }
+        }
+      ],
+      "description": "Basic file upload without additional metadata or protection"
+    },
+    {
+      "name": "2. Password Protected Upload",
+      "item": [
+        {
+          "name": "Upload with Password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"File is password protected\", function () {",
+                  "    pm.expect(jsonData.data.isPasswordProtected).to.be.true;",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('short_code', jsonData.data.shortCode);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select file to upload"
+                },
+                {
+                  "key": "isPasswordProtected",
+                  "value": "true",
+                  "type": "text",
+                  "description": "Enable password protection"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}",
+                  "type": "text",
+                  "description": "Password (min 4 characters)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload a file with password protection. Users must provide password to access."
+          }
+        }
+      ],
+      "description": "Upload files with password protection"
+    },
+    {
+      "name": "3. Upload with Expiry",
+      "item": [
+        {
+          "name": "Upload with Expiration Time",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"Expiry time is set\", function () {",
+                  "    pm.expect(jsonData.data.expiryTime).to.not.be.null;",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('short_code', jsonData.data.shortCode);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select file to upload"
+                },
+                {
+                  "key": "isExpire",
+                  "value": "true",
+                  "type": "text",
+                  "description": "Enable expiration"
+                },
+                {
+                  "key": "expiryTime",
+                  "value": "2025-12-31T23:59:59Z",
+                  "type": "text",
+                  "description": "Expiry time in ISO 8601 format"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload a file with expiration time. File becomes inaccessible after expiry."
+          }
+        },
+        {
+          "name": "Upload with Password & Expiry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"Both password and expiry are set\", function () {",
+                  "    pm.expect(jsonData.data.isPasswordProtected).to.be.true;",
+                  "    pm.expect(jsonData.data.expiryTime).to.not.be.null;",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('short_code', jsonData.data.shortCode);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select file to upload"
+                },
+                {
+                  "key": "isPasswordProtected",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "{{password}}",
+                  "type": "text"
+                },
+                {
+                  "key": "isExpire",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "expiryTime",
+                  "value": "2025-12-31T23:59:59Z",
+                  "type": "text"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload with both password protection and expiration time"
+          }
+        }
+      ],
+      "description": "Upload files with expiration time"
+    },
+    {
+      "name": "4. Upload with Full Metadata",
+      "item": [
+        {
+          "name": "Upload with All Features",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"All features configured\", function () {",
+                  "    pm.expect(jsonData.data.isPasswordProtected).to.be.true;",
+                  "    pm.expect(jsonData.data.expiryTime).to.not.be.null;",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('short_code', jsonData.data.shortCode);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select file to upload"
+                },
+                {
+                  "key": "isPasswordProtected",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "secure123",
+                  "type": "text"
+                },
+                {
+                  "key": "isExpire",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "expiryTime",
+                  "value": "2025-12-31T23:59:59Z",
+                  "type": "text"
+                },
+                {
+                  "key": "metadata",
+                  "value": "{\"isDownloadEnable\":true,\"isScreenShotEnable\":false,\"isChatbotEnable\":true,\"isInterestForm\":true,\"isFollowUp\":false}",
+                  "type": "text",
+                  "description": "JSON metadata for additional features"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload with password, expiry, and full metadata configuration"
+          }
+        },
+        {
+          "name": "Upload with Metadata Only",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "metadata",
+                  "value": "{\"isDownloadEnable\":true,\"isChatbotEnable\":true,\"isInterestForm\":false}",
+                  "type": "text",
+                  "description": "Feature configuration metadata"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Upload with only metadata, no password or expiry"
+          }
+        }
+      ],
+      "description": "Upload files with complete metadata configuration"
+    },
+    {
+      "name": "5. Access Files (Signed URLs)",
+      "item": [
+        {
+          "name": "Access Public File",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 302 (redirect)\", function () {",
+                  "    pm.response.to.have.status(302);",
+                  "});",
+                  "",
+                  "pm.test(\"Location header contains signed URL\", function () {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.not.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/{{short_code}}",
+              "host": ["{{base_url}}"],
+              "path": ["{{short_code}}"]
+            },
+            "description": "Access a file without password. Returns 302 redirect to signed R2 URL (valid for 1 hour)."
+          }
+        },
+        {
+          "name": "Access Password Protected File",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 302 (redirect)\", function () {",
+                  "    pm.response.to.have.status(302);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/{{short_code}}?password={{password}}",
+              "host": ["{{base_url}}"],
+              "path": ["{{short_code}}"],
+              "query": [
+                {
+                  "key": "password",
+                  "value": "{{password}}",
+                  "description": "Required password for protected files"
+                }
+              ]
+            },
+            "description": "Access password-protected file by providing password in query parameter"
+          }
+        },
+        {
+          "name": "Access File Without Password (Should Fail)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 401\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test(\"Error message about password\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.include('Password required');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/{{short_code}}",
+              "host": ["{{base_url}}"],
+              "path": ["{{short_code}}"]
+            },
+            "description": "Try to access password-protected file without password - should return 401"
+          }
+        }
+      ],
+      "description": "Access uploaded files via short URLs. System generates signed R2 URLs valid for 1 hour."
+    },
+    {
+      "name": "6. Get User Files",
+      "item": [
+        {
+          "name": "Get All Files (Default)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"Files array returned\", function () {",
+                  "    pm.expect(jsonData.data).to.have.property('files');",
+                  "    pm.expect(jsonData.data.files).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test(\"Pagination info included\", function () {",
+                  "    pm.expect(jsonData.data).to.have.property('pagination');",
+                  "    pm.expect(jsonData.data.pagination).to.have.property('totalFiles');",
+                  "});",
+                  "",
+                  "pm.test(\"Summary included\", function () {",
+                  "    pm.expect(jsonData.data).to.have.property('summary');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/user/files",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "files"]
+            },
+            "description": "Get all files uploaded by authenticated user with default pagination (page 1, limit 10)"
+          }
+        },
+        {
+          "name": "Get Files with Pagination",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"Correct pagination applied\", function () {",
+                  "    pm.expect(jsonData.data.pagination.page).to.equal(2);",
+                  "    pm.expect(jsonData.data.pagination.limit).to.equal(20);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/user/files?page=2&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "files"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "2",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Files per page (max 50)"
+                }
+              ]
+            },
+            "description": "Get files with custom pagination - page 2 with 20 files per page"
+          }
+        },
+        {
+          "name": "Get Files Sorted by Clicks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/user/files?sort=clicks&order=desc",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "files"],
+              "query": [
+                {
+                  "key": "sort",
+                  "value": "clicks",
+                  "description": "Sort by: created_at, clicks, file_size"
+                },
+                {
+                  "key": "order",
+                  "value": "desc",
+                  "description": "Order: asc or desc"
+                }
+              ]
+            },
+            "description": "Get files sorted by number of clicks in descending order"
+          }
+        },
+        {
+          "name": "Get Files Sorted by Size",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/user/files?sort=file_size&order=desc",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "files"],
+              "query": [
+                {
+                  "key": "sort",
+                  "value": "file_size",
+                  "description": "Sort by file size"
+                },
+                {
+                  "key": "order",
+                  "value": "desc",
+                  "description": "Largest files first"
+                }
+              ]
+            },
+            "description": "Get files sorted by file size (largest first)"
+          }
+        },
+        {
+          "name": "Get Only PDF Files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/user/files?type=pdf",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "files"],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "pdf",
+                  "description": "Filter by type: all, pdf, image"
+                }
+              ]
+            },
+            "description": "Get only PDF files uploaded by user"
+          }
+        },
+        {
+          "name": "Get Only Image Files",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/user/files?type=image",
+              "host": ["{{base_url}}"],
+              "path": ["api", "user", "files"],
+              "query": [
+                {
+                  "key": "type",
+                  "value": "image",
+                  "description": "Filter for image files only"
+                }
+              ]
+            },
+            "description": "Get only image files uploaded by user"
+          }
+        }
+      ],
+      "description": "Get all files uploaded by authenticated user with filtering, sorting, and pagination"
+    },
+    {
+      "name": "7. File Statistics",
+      "item": [
+        {
+          "name": "Get File Stats",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test(\"Statistics returned\", function () {",
+                  "    pm.expect(jsonData.data).to.have.property('clicks');",
+                  "    pm.expect(jsonData.data).to.have.property('urlType');",
+                  "    pm.expect(jsonData.data.urlType).to.equal('file');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/stats/{{short_code}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stats", "{{short_code}}"]
+            },
+            "description": "Get statistics for an uploaded file including clicks, metadata, and expiry"
+          }
+        }
+      ],
+      "description": "Get statistics and metadata for uploaded files"
+    },
+    {
+      "name": "7. Error Scenarios",
+      "item": [
+        {
+          "name": "Upload Without File",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Error message\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.include('No file uploaded');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": []
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Should fail when no file is provided"
+          }
+        },
+        {
+          "name": "Upload with Password Too Short",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Error about password length\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.include('at least 4 characters');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "isPasswordProtected",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "123",
+                  "type": "text",
+                  "description": "Password too short (< 4 chars)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Should fail when password is less than 4 characters"
+          }
+        },
+        {
+          "name": "Upload with Past Expiry Time",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test(\"Error about expiry time\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.include('must be in the future');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": []
+                },
+                {
+                  "key": "isExpire",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "expiryTime",
+                  "value": "2020-01-01T00:00:00Z",
+                  "type": "text",
+                  "description": "Past date"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "upload"]
+            },
+            "description": "Should fail when expiry time is in the past"
+          }
+        },
+        {
+          "name": "Access Non-Existent File",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test(\"Error message\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.error).to.include('not found');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/invalid123",
+              "host": ["{{base_url}}"],
+              "path": ["invalid123"]
+            },
+            "description": "Try to access non-existent short code - should return 404"
+          }
+        }
+      ],
+      "description": "Common error scenarios and their expected responses"
+    }
+  ]
+}
